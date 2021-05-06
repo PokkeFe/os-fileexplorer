@@ -1,8 +1,14 @@
 #include <iostream>
 #include <SDL.h>
+#include <cstring>
 
 #define WIDTH 800
 #define HEIGHT 600
+
+class File {
+    public:
+        std::string name;
+};
 
 
 void initialize(SDL_Renderer *renderer);

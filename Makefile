@@ -28,4 +28,5 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
 # REMOVE OLD FILES
 clean:
 	rm -f $(OBJS) $(EXEC)
+	rm -rf obj/ bin/
 
