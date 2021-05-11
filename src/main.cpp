@@ -18,25 +18,32 @@ class File {
 
 typedef struct AppData {
     TTF_Font *font;
+
     SDL_Texture *Directory;
     SDL_Texture *Executable;
     SDL_Texture *Image;
     SDL_Texture *Video;
     SDL_Texture *Code;
     SDL_Texture *Other;
-    std::string PathText;
+    SDL_Texture *Text;
     SDL_Texture *Path;
+
+    std::string PathText;
+
     SDL_Rect Icon_rect;
+    SDL_Rect Text_rect;
     SDL_Rect Path_rect;
     SDL_Rect Path_container;
+
 } AppData;
 
 void initialize(SDL_Renderer *renderer, AppData *data);
-void render(SDL_Renderer *renderer, AppData *data);
+void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
 std::vector<File*> getItemsInDirectory(std::string dirpath);
 void freeItemVector(std::vector<File*> *vector_ptr);
 void setPath(AppData *data, std::string path);
+void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
 int main(int argc, char **argv)
 {
@@ -70,10 +77,11 @@ int main(int argc, char **argv)
     // Initializing AppData----------------------------------------------
     AppData data;
     setPath(&data, std::string(home));
+    std::vector<File*> files = getItemsInDirectory(home);
 
     // initialize and perform rendering loop
     initialize(renderer, &data);
-    render(renderer, &data);
+    render(renderer, &data, files);
     SDL_Event event;
     SDL_WaitEvent(&event);
     while (event.type != SDL_QUIT)
@@ -88,6 +96,9 @@ int main(int argc, char **argv)
     TTF_Quit();
     IMG_Quit();
     SDL_Quit();
+
+    delete(&data);
+    delete(&files);
 
     return 0;
 }
@@ -123,7 +134,7 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     SDL_FreeSurface(img6_surf);
     
     /*-----------------------Initializing Path Text------------------------*/
-    data->font = TTF_OpenFont("resrc/OpenSans-Regular.ttf", 24);
+    data->font = TTF_OpenFont("resrc/OpenSans-Regular.ttf", 12);
     SDL_Color color = {0, 0, 0};
     SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
@@ -132,22 +143,28 @@ void initialize(SDL_Renderer *renderer, AppData *data)
 
     /*-----------------------Initializing Rectangles----------------------*/
     // My_rect = {x, y, width, height}
-    
-    data->Path_container = {30, 30, 200, 150};
 
-    data->Path_rect = {50, 50, 100, 100};
+    data->Path_container = {10, 10, 780, 40};
+
+    data->Path_rect = {20, 21, 50, 50};
     SDL_QueryTexture(data->Path, NULL, NULL, &(data->Path_rect.w), &(data->Path_rect.h));
     
-    data->Icon_rect = {50, 250, 50, 50};
+    data->Icon_rect = {20, 60, 30, 30};
 }
 
-void render(SDL_Renderer *renderer, AppData *data){
+void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
     // erase renderer content
     SDL_RenderClear(renderer);
     
     // TODO: draw!
+    SDL_RenderDrawRect(renderer, &(data->Path_container));
+    SDL_SetRenderDrawColor(renderer, 0xd9, 0xdb, 0xb9, 0x00);
+    SDL_RenderFillRect(renderer, &(data->Path_container));
     SDL_RenderCopy(renderer, data->Path, NULL, &(data->Path_rect));
-    SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+    //SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+
+    // -- Render Files --
+    renderFiles(renderer, data, files);
 
     // show rendered frame
     SDL_RenderPresent(renderer);
@@ -192,4 +209,32 @@ void freeItemVector(std::vector<File*> *vector_ptr)
 
 void setPath(AppData *data, std::string path){
     data->PathText = path;
+}
+
+void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
+
+    int i; 
+    for(i = 0; i < files.size(); i++){
+
+        // ----Render Icon---- //
+        if(files[i]->is_dir == true){
+            SDL_RenderCopy(renderer, data->Directory, NULL, &(data->Icon_rect));
+        }
+        else{
+            SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+        }
+        
+        // ----Render Text---- //
+        SDL_Color color = {0, 0, 0};
+        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, files[i]->name.c_str(), color);
+        data->Text = SDL_CreateTextureFromSurface(renderer, text_surface);
+        SDL_FreeSurface(text_surface);
+        data->Text_rect.x = data->Icon_rect.x + 40;
+        data->Text_rect.y = data->Icon_rect.y + 9;
+        SDL_QueryTexture(data->Text, NULL, NULL, &(data->Text_rect.w), &(data->Text_rect.h));
+        SDL_RenderCopy(renderer, data->Text, NULL, &(data->Text_rect));
+
+        // ----Increment Height---- //
+        data->Icon_rect.y += 30;
+    }
 }
