@@ -29,20 +29,32 @@ typedef struct AppData {
     SDL_Texture *Video;
     SDL_Texture *Code;
     SDL_Texture *Other;
-    SDL_Texture *Text;
     SDL_Texture *Path;
+
+    std::vector<SDL_Texture*> Text;
+    std::vector<SDL_Texture*> Size;
+    std::vector<SDL_Texture*> Permissions; 
+
+    /*
+    SDL_Texture *Text;
+    SDL_Texture *Size;
+    SDL_Texture *Permissions;
+    */
 
     std::string PathText;
 
-    SDL_Rect Icon_rect;
-    SDL_Rect Text_rect;
     SDL_Rect Path_rect;
     SDL_Rect Path_container;
+
+    SDL_Rect Icon_rect;
+    SDL_Rect Text_rect;
+    SDL_Rect Size_rect;
+    SDL_Rect Perm_rect;
 
     int scroll_offset;
 } AppData;
 
-void initialize(SDL_Renderer *renderer, AppData *data);
+void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
 void resetRenderData(AppData *data);
@@ -77,7 +89,7 @@ int main(int argc, char **argv)
     data.scroll_offset = 0;
 
     // initialize and perform rendering loop
-    initialize(renderer, &data);
+    initialize(renderer, &data, files);
     render(renderer, &data, files);
     SDL_Event event;
     SDL_WaitEvent(&event);
@@ -88,6 +100,7 @@ int main(int argc, char **argv)
             data.scroll_offset += event.wheel.y << 4;
             // Don't allow to scroll above files (offset inverted)
             if(data.scroll_offset > 0) data.scroll_offset = 0;
+
         }
 
         resetRenderData(&data);
@@ -112,7 +125,7 @@ void resetRenderData(AppData *data) {
     data->Icon_rect = {20, 60 + data->scroll_offset, 30, 30};
 }
 
-void initialize(SDL_Renderer *renderer, AppData *data)
+void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
 {
     // set color of background when erasing frame
     SDL_SetRenderDrawColor(renderer, 235, 235, 235, 255);
@@ -142,13 +155,32 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     data->Other = SDL_CreateTextureFromSurface(renderer, img6_surf);
     SDL_FreeSurface(img6_surf);
     
-    /*-----------------------Initializing Path Text------------------------*/
+    /*-----------------------Initializing Text Textures------------------------*/
     data->font = TTF_OpenFont("resrc/OpenSans-Regular.ttf", 12);
     SDL_Color color = {0, 0, 0};
     SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
     SDL_FreeSurface(path_surface);
 
+    int j;
+    for(j = 0; j < files.size(); j++){
+
+        // -- File Name -- //
+        SDL_Color color = {0, 0, 0};
+        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, files[j]->name.c_str(), color);
+        data->Text.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
+        SDL_FreeSurface(text_surface);
+
+        // -- File Size -- //
+        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, files[j]->size.c_str(), color);
+        data->Size.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
+        SDL_FreeSurface(text_surface2);
+
+        // -- File Permissions -- //
+        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, files[j]->permissions.c_str(), color);
+        data->Permissions.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
+        SDL_FreeSurface(text_surface3);
+    }
 
     /*-----------------------Initializing Rectangles----------------------*/
     // My_rect = {x, y, width, height}
@@ -158,7 +190,7 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     data->Path_rect = {20, 21, 50, 50};
     SDL_QueryTexture(data->Path, NULL, NULL, &(data->Path_rect.w), &(data->Path_rect.h));
     
-    data->Icon_rect = {20, 60, 30, 30};
+    data->Icon_rect = {20, 60, 30, 30};  
 }
 
 void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
@@ -335,16 +367,26 @@ std::string parseSize(size_t byte_size) {
     return size_str;
 }
 
+/** Sets the path text for the current file directory path
+ * @param data App Data used in rendering main-stage content
+ * @param path Path to change the current PathText into
+ */
 void setPath(AppData *data, std::string path){
     data->PathText = path;
 }
 
+/** Render all files/Icons/Size/permissions within a current path directory
+ * @param renderer Main-stage renderer
+ * @param data App Data used in rendering main-state content
+ * @param files list of files within the current path directory
+ */
 void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
 
     int i; 
     for(i = 0; i < files.size(); i++){
 
         // ----Render Icon---- //
+
         if(files[i]->is_dir == true){
             SDL_RenderCopy(renderer, data->Directory, NULL, &(data->Icon_rect));
         }
@@ -353,16 +395,28 @@ void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files
         }
         
         // ----Render Text---- //
-        SDL_Color color = {0, 0, 0};
-        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, files[i]->name.c_str(), color);
-        data->Text = SDL_CreateTextureFromSurface(renderer, text_surface);
-        SDL_FreeSurface(text_surface);
+        
         data->Text_rect.x = data->Icon_rect.x + 40;
         data->Text_rect.y = data->Icon_rect.y + 9;
-        SDL_QueryTexture(data->Text, NULL, NULL, &(data->Text_rect.w), &(data->Text_rect.h));
-        SDL_RenderCopy(renderer, data->Text, NULL, &(data->Text_rect));
+        SDL_QueryTexture(data->Text[i], NULL, NULL, &(data->Text_rect.w), &(data->Text_rect.h));
+        SDL_RenderCopy(renderer, data->Text[i], NULL, &(data->Text_rect));
+
+        // ----Render Size---- //
+
+        data->Size_rect.x = data->Text_rect.x + 300;
+        data->Size_rect.y = data->Icon_rect.y + 9;
+        SDL_QueryTexture(data->Size[i], NULL, NULL, &(data->Size_rect.w), &(data->Size_rect.h));
+        SDL_RenderCopy(renderer, data->Size[i], NULL, &(data->Size_rect));
+
+        // ----Render Permissions---- //
+
+        data->Perm_rect.x = data->Text_rect.x + 400;
+        data->Perm_rect.y = data->Icon_rect.y + 9;
+        SDL_QueryTexture(data->Permissions[i], NULL, NULL, &(data->Perm_rect.w), &(data->Perm_rect.h));
+        SDL_RenderCopy(renderer, data->Permissions[i], NULL, &(data->Perm_rect));
 
         // ----Increment Height---- //
+
         data->Icon_rect.y += 30;
     }
 }
