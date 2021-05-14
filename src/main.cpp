@@ -11,6 +11,17 @@
 #define WIDTH 800
 #define HEIGHT 600
 
+#define FILES_TOP_MARGIN 60
+#define FILES_LEFT_MARGIN 20
+#define FILE_HEIGHT 30
+
+#define SCROLLBAR_X WIDTH - 15
+#define SCROLLBAR_Y (FILES_TOP_MARGIN + 5)
+#define SCROLLBAR_HEIGHT (HEIGHT - SCROLLBAR_Y - 5)
+#define SCROLLBAR_HANDLE_RADIUS 5
+const SDL_Color SCROLLBAR_COLOR = {0, 0, 0, 255};
+const SDL_Color SCROLLBAR_HANDLE_COLOR = {200, 200, 200, 180};
+
 enum struct Type {
     DIRECTORY,
     EXECUTABLE,
@@ -86,7 +97,12 @@ typedef struct AppData {
     SDL_Rect Size_rect;
     SDL_Rect Perm_rect;
 
+    int page_height;
+    int files_height;
     int scroll_offset;
+    float scrollbar_ratio;
+
+    SDL_Rect scrollbar_rect;
 } AppData;
 
 void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
@@ -104,6 +120,10 @@ bool doesContain(std::string str, std::vector<std::string> vec);
 void setPath(AppData *data, std::string path);
 void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
+// Scrollbar
+void updateScrollbarRatio(AppData* data, int num_files);
+void renderScrollbar(SDL_Renderer* renderer, AppData* data);
+
 int main(int argc, char **argv)
 {
     char *home = getenv("HOME");
@@ -119,10 +139,15 @@ int main(int argc, char **argv)
     SDL_Window *window;
     SDL_CreateWindowAndRenderer(WIDTH, HEIGHT, 0, &window, &renderer);
 
+    // setup rendere
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
     // Initializing AppData----------------------------------------------
     AppData data;
     setPath(&data, std::string(home));
     std::vector<File*> files = getItemsInDirectory(home);
+    data.page_height = HEIGHT - FILES_TOP_MARGIN;
+    updateScrollbarRatio(&data, files.size());
     data.scroll_offset = 0;
 
     // initialize and perform rendering loop
@@ -134,10 +159,10 @@ int main(int argc, char **argv)
     {
         if (event.type == SDL_MOUSEWHEEL)
         {
-            data.scroll_offset += event.wheel.y << 4;
+            data.scroll_offset -= event.wheel.y << 4;
             // Don't allow to scroll above files (offset inverted)
-            if(data.scroll_offset > 0) data.scroll_offset = 0;
-
+            if(data.scroll_offset < 0) data.scroll_offset = 0;
+            if(data.scroll_offset > (data.files_height - data.page_height)) data.scroll_offset = (data.files_height - data.page_height);
         }
 
         resetRenderData(&data);
@@ -159,7 +184,7 @@ int main(int argc, char **argv)
 
 // Reset any data needed for a render update
 void resetRenderData(AppData *data) {
-    data->Icon_rect = {20, 60 + data->scroll_offset, 30, 30};
+    data->Icon_rect = {FILES_LEFT_MARGIN, FILES_TOP_MARGIN - data->scroll_offset, 30, 30};
 }
 
 void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
@@ -228,22 +253,26 @@ void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
     SDL_QueryTexture(data->Path, NULL, NULL, &(data->Path_rect.w), &(data->Path_rect.h));
     
     data->Icon_rect = {20, 60, 30, 30};  
+
+    data->scrollbar_rect = {SCROLLBAR_X, SCROLLBAR_Y, 1, SCROLLBAR_HEIGHT};
 }
 
 void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
     // erase renderer content
-    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0);
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
     SDL_RenderClear(renderer);
+
+    // -- Render Files --
+    renderFiles(renderer, data, files);
     
     // TODO: draw!
     SDL_RenderDrawRect(renderer, &(data->Path_container));
-    SDL_SetRenderDrawColor(renderer, 0xd9, 0xdb, 0xb9, 0x00);
+    SDL_SetRenderDrawColor(renderer, 0xd9, 0xdb, 0xb9, 0xFF);
     SDL_RenderFillRect(renderer, &(data->Path_container));
     SDL_RenderCopy(renderer, data->Path, NULL, &(data->Path_rect));
     //SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
 
-    // -- Render Files --
-    renderFiles(renderer, data, files);
+    renderScrollbar(renderer, data);
 
     // show rendered frame
     SDL_RenderPresent(renderer);
@@ -494,5 +523,36 @@ void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files
         // ----Increment Height---- //
 
         data->Icon_rect.y += 30;
+    }
+}
+
+/** Updates the scrollbar after a change in the number of files visible on screen
+ * @param data AppData
+ * @param num_files number of files on screen
+ */
+void updateScrollbarRatio(AppData* data, int num_files)
+{
+    data->files_height = num_files * FILE_HEIGHT;
+    data->scrollbar_ratio = (float) data->page_height / (float) data->files_height;
+}
+
+/** Renders the scroll bar
+ */
+void renderScrollbar(SDL_Renderer* renderer, AppData* data)
+{
+    // only render if scroll height is less than 1.0
+    if(data->scrollbar_ratio < 1.0f)
+    {
+        // render line
+        SDL_SetRenderDrawColor(renderer, SCROLLBAR_COLOR.r, SCROLLBAR_COLOR.g, SCROLLBAR_COLOR.b, SCROLLBAR_COLOR.a);
+        SDL_RenderDrawRect(renderer, &data->scrollbar_rect);
+
+        // render grab box
+        SDL_SetRenderDrawColor(renderer, SCROLLBAR_HANDLE_COLOR.r, SCROLLBAR_HANDLE_COLOR.g, SCROLLBAR_HANDLE_COLOR.b, SCROLLBAR_HANDLE_COLOR.a);
+        // create rectangle
+        int handle_height = (int) ((float)SCROLLBAR_HEIGHT * data->scrollbar_ratio);
+        float handle_offset_ratio = (float) data->scroll_offset / (float) (data->files_height - data->page_height);
+        SDL_Rect handle = {SCROLLBAR_X - SCROLLBAR_HANDLE_RADIUS, SCROLLBAR_Y + (int)((float)(SCROLLBAR_HEIGHT - handle_height) * handle_offset_ratio), SCROLLBAR_HANDLE_RADIUS << 1, (int) ((float)SCROLLBAR_HEIGHT * data->scrollbar_ratio)};
+        SDL_RenderFillRect(renderer, &handle);
     }
 }
