@@ -132,7 +132,7 @@ void updateScrollbarRatio(AppData* data, int num_files);
 void updateScrollbarPosition(AppData* data, int mouse_y);
 void renderScrollbar(SDL_Renderer* renderer, AppData* data);
 
-void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
+void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data, std::vector<File*> files);
 void releaseHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
 void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
 
@@ -178,7 +178,7 @@ int main(int argc, char **argv)
         // CLICK AND RELEASE HANDLING
         if (event.type == SDL_MOUSEBUTTONDOWN)
         {
-            clickHandler(&event, renderer, &data);
+            clickHandler(&event, renderer, &data, files);
         }
         else if (event.type == SDL_MOUSEBUTTONUP)
         {
@@ -627,7 +627,7 @@ void renderScrollbar(SDL_Renderer* renderer, AppData* data)
 // ─── MOUSE ──────────────────────────────────────────────────────────────────────
 
 
-void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data) 
+void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data, std::vector<File*> files) 
 {
     int click_y = event->button.y;
     int click_x = event->button.x;
@@ -658,6 +658,14 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
     else
     {
         // HANDLE FILE CLICKS
+        int y_normalized = click_y - FILES_TOP_MARGIN + data->scroll_offset;
+        int file_index = y_normalized / FILE_HEIGHT;
+        if(file_index < files.size())
+        {
+            // CLICKED FILE
+            printf("Clicked %s\n", files.at(file_index)->name.c_str());
+        }
+        
     }
 }
 
@@ -675,5 +683,6 @@ void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
     if(data->scrollbar_drag)
     {
         updateScrollbarPosition(data, event->motion.y);
+        return;
     }
 }
