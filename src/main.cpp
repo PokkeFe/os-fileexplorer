@@ -97,12 +97,15 @@ typedef struct AppData {
     SDL_Rect Size_rect;
     SDL_Rect Perm_rect;
 
+    // Render Values -
     int page_height;
     int files_height;
+
+    // Scrolling -
     int scroll_offset;
     float scrollbar_ratio;
-
     SDL_Rect scrollbar_rect;
+    
 } AppData;
 
 void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
@@ -120,9 +123,12 @@ bool doesContain(std::string str, std::vector<std::string> vec);
 void setPath(AppData *data, std::string path);
 void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
-// Scrollbar
 void updateScrollbarRatio(AppData* data, int num_files);
 void renderScrollbar(SDL_Renderer* renderer, AppData* data);
+
+//
+// ─── MAIN ───────────────────────────────────────────────────────────────────────
+//
 
 int main(int argc, char **argv)
 {
@@ -181,6 +187,10 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+//
+// ─── INIT & RENDER ──────────────────────────────────────────────────────────────
+//
 
 // Reset any data needed for a render update
 void resetRenderData(AppData *data) {
@@ -277,6 +287,11 @@ void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
     // show rendered frame
     SDL_RenderPresent(renderer);
 }
+
+//
+// ─── FILES ──────────────────────────────────────────────────────────────────────
+//
+
 
 /** Get all the file/directory items at the given dirpath
  * @param dirpath Path of the directory to get the contents of.
@@ -525,6 +540,12 @@ void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files
         data->Icon_rect.y += 30;
     }
 }
+
+
+//
+// ─── SCROLLBAR ──────────────────────────────────────────────────────────────────
+//
+
 
 /** Updates the scrollbar after a change in the number of files visible on screen
  * @param data AppData
