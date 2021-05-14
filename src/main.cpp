@@ -21,6 +21,7 @@
 #define SCROLLBAR_HANDLE_RADIUS 5
 const SDL_Color SCROLLBAR_COLOR = {0, 0, 0, 255};
 const SDL_Color SCROLLBAR_HANDLE_COLOR = {200, 200, 200, 180};
+const SDL_Color SCROLLBAR_HANDLE_DRAG_COLOR = {200, 200, 200, 255};
 
 enum struct Type {
     DIRECTORY,
@@ -104,8 +105,12 @@ typedef struct AppData {
     // Scrolling -
     int scroll_offset;
     float scrollbar_ratio;
-    SDL_Rect scrollbar_rect;
-    
+    SDL_Rect scrollbar_guide_rect;
+    SDL_Rect scrollbar_handle_rect;
+    int scrollbar_click_xoff;
+    int scrollbar_click_yoff;
+    bool scrollbar_drag;
+
 } AppData;
 
 void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
@@ -124,11 +129,16 @@ void setPath(AppData *data, std::string path);
 void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
 void updateScrollbarRatio(AppData* data, int num_files);
+void updateScrollbarPosition(AppData* data, int mouse_y);
 void renderScrollbar(SDL_Renderer* renderer, AppData* data);
 
-//
+void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
+void releaseHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
+void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data);
+
+
 // ─── MAIN ───────────────────────────────────────────────────────────────────────
-//
+
 
 int main(int argc, char **argv)
 {
@@ -152,9 +162,11 @@ int main(int argc, char **argv)
     AppData data;
     setPath(&data, std::string(home));
     std::vector<File*> files = getItemsInDirectory(home);
+
     data.page_height = HEIGHT - FILES_TOP_MARGIN;
     updateScrollbarRatio(&data, files.size());
     data.scroll_offset = 0;
+    data.scrollbar_drag = false;
 
     // initialize and perform rendering loop
     initialize(renderer, &data, files);
@@ -163,6 +175,23 @@ int main(int argc, char **argv)
     SDL_WaitEvent(&event);
     while (event.type != SDL_QUIT)
     {
+        // CLICK AND RELEASE HANDLING
+        if (event.type == SDL_MOUSEBUTTONDOWN)
+        {
+            clickHandler(&event, renderer, &data);
+        }
+        else if (event.type == SDL_MOUSEBUTTONUP)
+        {
+            releaseHandler(&event, renderer, &data);
+        }
+
+        // DRAG HANDLING
+        if(event.type == SDL_MOUSEMOTION)
+        {
+            motionHandler(&event, renderer, &data);
+        }
+
+        // MOUSE WHEEL HANDLING
         if (event.type == SDL_MOUSEWHEEL)
         {
             data.scroll_offset -= event.wheel.y << 4;
@@ -188,9 +217,9 @@ int main(int argc, char **argv)
     return 0;
 }
 
-//
+
 // ─── INIT & RENDER ──────────────────────────────────────────────────────────────
-//
+
 
 // Reset any data needed for a render update
 void resetRenderData(AppData *data) {
@@ -264,7 +293,7 @@ void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
     
     data->Icon_rect = {20, 60, 30, 30};  
 
-    data->scrollbar_rect = {SCROLLBAR_X, SCROLLBAR_Y, 1, SCROLLBAR_HEIGHT};
+    data->scrollbar_guide_rect = {SCROLLBAR_X, SCROLLBAR_Y, 1, SCROLLBAR_HEIGHT};
 }
 
 void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
@@ -288,9 +317,8 @@ void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
     SDL_RenderPresent(renderer);
 }
 
-//
+
 // ─── FILES ──────────────────────────────────────────────────────────────────────
-//
 
 
 /** Get all the file/directory items at the given dirpath
@@ -542,9 +570,7 @@ void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files
 }
 
 
-//
 // ─── SCROLLBAR ──────────────────────────────────────────────────────────────────
-//
 
 
 /** Updates the scrollbar after a change in the number of files visible on screen
@@ -557,6 +583,18 @@ void updateScrollbarRatio(AppData* data, int num_files)
     data->scrollbar_ratio = (float) data->page_height / (float) data->files_height;
 }
 
+void updateScrollbarPosition(AppData* data, int mouse_y)
+{
+    // get normalized y
+    int y = mouse_y - data->scrollbar_click_yoff - SCROLLBAR_Y;
+    if(y < 0) y = 0;
+    
+    float handle_offset_ratio = (float) y / (float) (SCROLLBAR_HEIGHT - data->scrollbar_handle_rect.h);
+    if(handle_offset_ratio > 1.0f) handle_offset_ratio = 1.0f;
+
+    data->scroll_offset = (int) (handle_offset_ratio * (data->files_height - data->page_height));
+}
+
 /** Renders the scroll bar
  */
 void renderScrollbar(SDL_Renderer* renderer, AppData* data)
@@ -566,14 +604,76 @@ void renderScrollbar(SDL_Renderer* renderer, AppData* data)
     {
         // render line
         SDL_SetRenderDrawColor(renderer, SCROLLBAR_COLOR.r, SCROLLBAR_COLOR.g, SCROLLBAR_COLOR.b, SCROLLBAR_COLOR.a);
-        SDL_RenderDrawRect(renderer, &data->scrollbar_rect);
+        SDL_RenderDrawRect(renderer, &data->scrollbar_guide_rect);
 
         // render grab box
-        SDL_SetRenderDrawColor(renderer, SCROLLBAR_HANDLE_COLOR.r, SCROLLBAR_HANDLE_COLOR.g, SCROLLBAR_HANDLE_COLOR.b, SCROLLBAR_HANDLE_COLOR.a);
+        if(data->scrollbar_drag)
+        {
+            SDL_SetRenderDrawColor(renderer, SCROLLBAR_HANDLE_DRAG_COLOR.r, SCROLLBAR_HANDLE_DRAG_COLOR.g, SCROLLBAR_HANDLE_DRAG_COLOR.b, SCROLLBAR_HANDLE_DRAG_COLOR.a);
+        }
+        else
+        {
+            SDL_SetRenderDrawColor(renderer, SCROLLBAR_HANDLE_COLOR.r, SCROLLBAR_HANDLE_COLOR.g, SCROLLBAR_HANDLE_COLOR.b, SCROLLBAR_HANDLE_COLOR.a);
+        }
         // create rectangle
         int handle_height = (int) ((float)SCROLLBAR_HEIGHT * data->scrollbar_ratio);
         float handle_offset_ratio = (float) data->scroll_offset / (float) (data->files_height - data->page_height);
-        SDL_Rect handle = {SCROLLBAR_X - SCROLLBAR_HANDLE_RADIUS, SCROLLBAR_Y + (int)((float)(SCROLLBAR_HEIGHT - handle_height) * handle_offset_ratio), SCROLLBAR_HANDLE_RADIUS << 1, (int) ((float)SCROLLBAR_HEIGHT * data->scrollbar_ratio)};
-        SDL_RenderFillRect(renderer, &handle);
+        data->scrollbar_handle_rect = {SCROLLBAR_X - SCROLLBAR_HANDLE_RADIUS, SCROLLBAR_Y + (int)((float)(SCROLLBAR_HEIGHT - handle_height) * handle_offset_ratio), SCROLLBAR_HANDLE_RADIUS << 1, (int) ((float)SCROLLBAR_HEIGHT * data->scrollbar_ratio)};
+        SDL_RenderFillRect(renderer, &data->scrollbar_handle_rect);
+    }
+}
+
+
+// ─── MOUSE ──────────────────────────────────────────────────────────────────────
+
+
+void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data) 
+{
+    int click_y = event->button.y;
+    int click_x = event->button.x;
+    // First, check if the click happened in the header section, above the files
+    if(click_y < FILES_TOP_MARGIN)
+    {
+        // HANDLE HEADER CLICKS
+    }
+    // Second, check if the click happened near the scrollbar
+    else if(click_x >= SCROLLBAR_X - SCROLLBAR_HANDLE_RADIUS - 5)
+    {
+        // HANDLE SCROLLBAR CLICKS
+        // check that the click lands within scrollbar handle boundaries
+        if(
+            click_x >= data->scrollbar_handle_rect.x && click_x <= data->scrollbar_handle_rect.x + data->scrollbar_handle_rect.w &&
+            click_y >= data->scrollbar_handle_rect.y && click_y <= data->scrollbar_handle_rect.y + data->scrollbar_handle_rect.h
+        )
+        {
+            // set the click offset
+            data->scrollbar_click_xoff = click_x - data->scrollbar_handle_rect.x;
+            data->scrollbar_click_yoff = click_y - data->scrollbar_handle_rect.y;
+            // set data->scrollbar_drag to true
+            data->scrollbar_drag = true;
+        }
+
+    }
+    // If none of the above, try to find the file at that y location
+    else
+    {
+        // HANDLE FILE CLICKS
+    }
+}
+
+void releaseHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
+{
+    if(data->scrollbar_drag)
+    {
+        data->scrollbar_drag = false;
+    }
+}
+
+void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
+{
+    // If scrollbar is being dragged, update scrollbar position
+    if(data->scrollbar_drag)
+    {
+        updateScrollbarPosition(data, event->motion.y);
     }
 }
