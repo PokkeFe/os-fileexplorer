@@ -11,6 +11,40 @@
 #define WIDTH 800
 #define HEIGHT 600
 
+enum struct Type {
+    DIRECTORY,
+    EXECUTABLE,
+    IMAGE,
+    VIDEO,
+    CODE,
+    OTHER
+};
+
+// ! DEBUG FUNCTION
+std::string typeToString(Type t)
+{
+    switch(t)
+    {
+        case Type::DIRECTORY:
+            return "dir";
+        case Type::EXECUTABLE:
+            return "exe";
+        case Type::IMAGE:
+            return "img";
+        case Type::VIDEO:
+            return "vid";
+        case Type::CODE:
+            return "dev";
+        case Type::OTHER:
+            return "...";
+    }
+    return "ERR";
+}
+
+const std::vector<std::string> CODE_EXTENSIONS = {"h", "c", "cpp", "py", "java", "js"};
+const std::vector<std::string> IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "tif", "tiff", "gif"};
+const std::vector<std::string> VIDEO_EXTENSIONS = {"mp4", "mov", "mkv", "avi", "webm"};
+
 class File {
     public:
         std::string name;
@@ -18,6 +52,7 @@ class File {
         std::string extension;
         std::string permissions;
         std::string size;
+        Type type;
 };
 
 typedef struct AppData {
@@ -63,6 +98,8 @@ std::vector<File*> getItemsInDirectory(std::string dirpath);
 void freeItemVector(std::vector<File*> *vector_ptr);
 std::string parsePermission(mode_t permission_mode);
 std::string parseSize(size_t byte_size);
+Type parseType(File* file);
+bool doesContain(std::string str, std::vector<std::string> vec);
 
 void setPath(AppData *data, std::string path);
 void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
@@ -244,6 +281,8 @@ std::vector<File*> getItemsInDirectory(std::string dirpath)
                 // set the extension to every character after the .
                 file_entry->extension = file_entry->name;
                 file_entry->extension = file_entry->extension.erase(0, dot_pos+1);
+            } else {
+                file_entry->extension = "";
             }
 
             // extract permissions
@@ -252,7 +291,10 @@ std::vector<File*> getItemsInDirectory(std::string dirpath)
             // extract size
             file_entry->size = parseSize(entry_info.st_size);
 
-            //printf("%-40s - %s\n", file_entry->name.c_str(), file_entry->size.c_str());
+            // extract type
+            file_entry->type = parseType(file_entry);
+
+            printf("%-40s - %s\n", file_entry->name.c_str(), typeToString(file_entry->type).c_str());
             file_vector.push_back(file_entry);
         }
     }
@@ -365,6 +407,40 @@ std::string parseSize(size_t byte_size) {
     }
 
     return size_str;
+}
+
+/** Takes a pointer to a file and returns the type of the file
+ * @param file File to get type of
+ * @return The type of the file
+ */
+Type parseType(File* file) 
+{
+    // Directory
+    if(file->is_dir) return Type::DIRECTORY;
+    // Executable
+    if(file->permissions.find('x') != std::string::npos) return Type::EXECUTABLE;
+    // Code file
+    if(doesContain(file->extension, CODE_EXTENSIONS)) return Type::CODE;
+    // Image
+    if(doesContain(file->extension, IMAGE_EXTENSIONS)) return Type::IMAGE;
+    // Video
+    if(doesContain(file->extension, VIDEO_EXTENSIONS)) return Type::VIDEO;
+    // Other
+    return Type::OTHER;
+}
+
+/** Checks if a string vector contains an instance of given string
+ * @param str string to search for
+ * @param vec vector to search
+ * @return True if vectors contains string
+ */
+bool doesContain(std::string str, std::vector<std::string> vec)
+{
+    for(int i = 0; i < vec.size(); i++)
+    {
+        if(vec[i] == str) return true;
+    }
+    return false;
 }
 
 /** Sets the path text for the current file directory path
