@@ -583,6 +583,8 @@ void updateScrollbarRatio(AppData* data, int num_files)
     data->scrollbar_ratio = (float) data->page_height / (float) data->files_height;
 }
 
+/** Updates the scrollbar's position based on the mouse's location
+ */
 void updateScrollbarPosition(AppData* data, int mouse_y)
 {
     // get normalized y
@@ -627,6 +629,8 @@ void renderScrollbar(SDL_Renderer* renderer, AppData* data)
 // ─── MOUSE ──────────────────────────────────────────────────────────────────────
 
 
+/** Handle any logic for mouse click events
+ */
 void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data, std::vector<File*> files) 
 {
     int click_y = event->button.y;
@@ -669,6 +673,8 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data, std::
     }
 }
 
+/** Handle any logic for mouse release events
+ */
 void releaseHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
 {
     if(data->scrollbar_drag)
@@ -677,6 +683,8 @@ void releaseHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
     }
 }
 
+/** Handle any logic for mouse movement events
+ */
 void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
 {
     // If scrollbar is being dragged, update scrollbar position
