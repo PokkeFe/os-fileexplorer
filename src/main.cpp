@@ -107,6 +107,7 @@ typedef struct AppData {
     // Scrolling -
     int scroll_offset;
     float scrollbar_ratio;
+    bool scrollbar_enabled;
     SDL_Rect scrollbar_guide_rect;
     SDL_Rect scrollbar_handle_rect;
     int scrollbar_click_xoff;
@@ -131,7 +132,7 @@ void setPath(AppData *data, std::string path);
 void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles);
 void renderFiles(SDL_Renderer *renderer, AppData *data);
 
-void updateScrollbarRatio(AppData* data, int num_files);
+void updateScrollbarRatio(AppData* data);
 void updateScrollbarPosition(AppData* data, int mouse_y);
 void renderScrollbar(SDL_Renderer* renderer, AppData* data);
 
@@ -171,15 +172,16 @@ int main(int argc, char **argv)
     setFiles(renderer, &data, files);
     std::cout << "Goodbye!" << std::endl;
     */
-
+   
     data.page_height = HEIGHT - FILES_TOP_MARGIN;
-    updateScrollbarRatio(&data, files.size());
     data.scroll_offset = 0;
     data.scrollbar_drag = false;
 
     // initialize and perform rendering loop
     initialize(renderer, &data);
     setFiles(renderer, &data, files);
+
+    updateScrollbarRatio(&data);
     
     render(renderer, &data);
     SDL_Event event;
@@ -203,10 +205,11 @@ int main(int argc, char **argv)
         }
 
         // MOUSE WHEEL HANDLING
-        if (event.type == SDL_MOUSEWHEEL)
+        if (event.type == SDL_MOUSEWHEEL);
         {
             data.scroll_offset -= event.wheel.y << 4;
             // Don't allow to scroll above files (offset inverted)
+            printf("Mouse wheel event %d\n", data.scroll_offset);
             if(data.scroll_offset < 0) data.scroll_offset = 0;
             if(data.scroll_offset > (data.files_height - data.page_height)) data.scroll_offset = (data.files_height - data.page_height);
         }
@@ -644,16 +647,24 @@ void renderFiles(SDL_Renderer *renderer, AppData *data){
  * @param data AppData
  * @param num_files number of files on screen
  */
-void updateScrollbarRatio(AppData* data, int num_files)
+void updateScrollbarRatio(AppData* data)
 {
+    int num_files = data->files.size();
     data->files_height = num_files * FILE_HEIGHT;
     data->scrollbar_ratio = (float) data->page_height / (float) data->files_height;
+    if(data->scrollbar_ratio >= 1.0f)
+    {
+        data->scrollbar_enabled = false;
+    } else {
+        data->scrollbar_enabled = true;
+    }
 }
 
 /** Updates the scrollbar's position based on the mouse's location
  */
 void updateScrollbarPosition(AppData* data, int mouse_y)
 {
+    printf("Update scr pos method\n");
     // get normalized y
     int y = mouse_y - data->scrollbar_click_yoff - SCROLLBAR_Y;
     if(y < 0) y = 0;
@@ -669,7 +680,7 @@ void updateScrollbarPosition(AppData* data, int mouse_y)
 void renderScrollbar(SDL_Renderer* renderer, AppData* data)
 {
     // only render if scroll height is less than 1.0
-    if(data->scrollbar_ratio < 1.0f)
+    if(data->scrollbar_enabled)
     {
         // render line
         SDL_SetRenderDrawColor(renderer, SCROLLBAR_COLOR.r, SCROLLBAR_COLOR.g, SCROLLBAR_COLOR.b, SCROLLBAR_COLOR.a);
@@ -745,6 +756,10 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
                     setPath(data, fullPath);
                     std::vector<File*> newFiles = getItemsInDirectory(fullPath);
                     setFiles(renderer, data, newFiles);
+                    updateScrollbarRatio(data);
+                    printf("click event\n");
+                    data->scroll_offset = 0;
+                    renderScrollbar(renderer, data);
                     SDL_Color color = {0, 0, 0};
                     SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
                     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
@@ -756,6 +771,10 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
                     setPath(data, fullPath);
                     std::vector<File*> newFiles = getItemsInDirectory(fullPath);
                     setFiles(renderer, data, newFiles);
+                    updateScrollbarRatio(data);
+                    printf("click event\n");
+                    data->scroll_offset = 0;
+                    renderScrollbar(renderer, data);
                     SDL_Color color = {0, 0, 0};
                     SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
                     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
@@ -797,6 +816,7 @@ void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
     // If scrollbar is being dragged, update scrollbar position
     if(data->scrollbar_drag)
     {
+        printf("Updating scrollbar position\n");
         updateScrollbarPosition(data, event->motion.y);
         return;
     }
