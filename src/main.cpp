@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
@@ -6,6 +7,9 @@
 #include <string.h>
 #include <vector>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <dirent.h>
 
 #define WIDTH 800
@@ -70,6 +74,9 @@ class File {
 typedef struct AppData {
     TTF_Font *font;
 
+    // -- Files -- //
+    std::vector<File*> files;
+
     SDL_Texture *Directory;
     SDL_Texture *Executable;
     SDL_Texture *Image;
@@ -82,16 +89,11 @@ typedef struct AppData {
     std::vector<SDL_Texture*> Size;
     std::vector<SDL_Texture*> Permissions; 
 
-    /*
-    SDL_Texture *Text;
-    SDL_Texture *Size;
-    SDL_Texture *Permissions;
-    */
-
     std::string PathText;
 
     SDL_Rect Path_rect;
     SDL_Rect Path_container;
+    SDL_Rect Display_buffer;
 
     SDL_Rect Icon_rect;
     SDL_Rect Text_rect;
@@ -113,8 +115,8 @@ typedef struct AppData {
 
 } AppData;
 
-void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
-void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
+void initialize(SDL_Renderer *renderer, AppData *data);
+void render(SDL_Renderer *renderer, AppData *data);
 
 void resetRenderData(AppData *data);
 
@@ -126,7 +128,8 @@ Type parseType(File* file);
 bool doesContain(std::string str, std::vector<std::string> vec);
 
 void setPath(AppData *data, std::string path);
-void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
+void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles);
+void renderFiles(SDL_Renderer *renderer, AppData *data);
 
 void updateScrollbarRatio(AppData* data, int num_files);
 void updateScrollbarPosition(AppData* data, int mouse_y);
@@ -162,6 +165,12 @@ int main(int argc, char **argv)
     AppData data;
     setPath(&data, std::string(home));
     std::vector<File*> files = getItemsInDirectory(home);
+    
+    /*
+    std::cout << "Hello!" << std::endl;
+    setFiles(renderer, &data, files);
+    std::cout << "Goodbye!" << std::endl;
+    */
 
     data.page_height = HEIGHT - FILES_TOP_MARGIN;
     updateScrollbarRatio(&data, files.size());
@@ -169,8 +178,10 @@ int main(int argc, char **argv)
     data.scrollbar_drag = false;
 
     // initialize and perform rendering loop
-    initialize(renderer, &data, files);
-    render(renderer, &data, files);
+    initialize(renderer, &data);
+    setFiles(renderer, &data, files);
+    
+    render(renderer, &data);
     SDL_Event event;
     SDL_WaitEvent(&event);
     while (event.type != SDL_QUIT)
@@ -201,7 +212,7 @@ int main(int argc, char **argv)
         }
 
         resetRenderData(&data);
-        render(renderer, &data, files);
+        render(renderer, &data);
         SDL_WaitEvent(&event);
     }
 
@@ -226,7 +237,7 @@ void resetRenderData(AppData *data) {
     data->Icon_rect = {FILES_LEFT_MARGIN, FILES_TOP_MARGIN - data->scroll_offset, 30, 30};
 }
 
-void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
+void initialize(SDL_Renderer *renderer, AppData *data)
 {
     // set color of background when erasing frame
     SDL_SetRenderDrawColor(renderer, 235, 235, 235, 255);
@@ -264,21 +275,21 @@ void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
     SDL_FreeSurface(path_surface);
 
     int j;
-    for(j = 0; j < files.size(); j++){
+    for(j = 0; j < data->files.size(); j++){
 
         // -- File Name -- //
         SDL_Color color = {0, 0, 0};
-        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, files[j]->name.c_str(), color);
+        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, data->files[j]->name.c_str(), color);
         data->Text.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
         SDL_FreeSurface(text_surface);
 
         // -- File Size -- //
-        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, files[j]->size.c_str(), color);
+        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, data->files[j]->size.c_str(), color);
         data->Size.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
         SDL_FreeSurface(text_surface2);
 
         // -- File Permissions -- //
-        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, files[j]->permissions.c_str(), color);
+        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, data->files[j]->permissions.c_str(), color);
         data->Permissions.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
         SDL_FreeSurface(text_surface3);
     }
@@ -287,6 +298,7 @@ void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
     // My_rect = {x, y, width, height}
 
     data->Path_container = {10, 10, 780, 40};
+    data->Display_buffer = {10, 0, 800, 50};
 
     data->Path_rect = {20, 21, 50, 50};
     SDL_QueryTexture(data->Path, NULL, NULL, &(data->Path_rect.w), &(data->Path_rect.h));
@@ -296,21 +308,29 @@ void initialize(SDL_Renderer *renderer, AppData *data, std::vector<File*> files)
     data->scrollbar_guide_rect = {SCROLLBAR_X, SCROLLBAR_Y, 1, SCROLLBAR_HEIGHT};
 }
 
-void render(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
+void render(SDL_Renderer *renderer, AppData *data){
     // erase renderer content
     SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
     SDL_RenderClear(renderer);
-
-    // -- Render Files --
-    renderFiles(renderer, data, files);
     
     // TODO: draw!
+
+    // -- Render Files -- //
+    renderFiles(renderer, data);
+
+    // -- Display Buffer -- //
+    SDL_RenderDrawRect(renderer, &(data->Display_buffer));
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+    SDL_RenderFillRect(renderer, &(data->Display_buffer));
+
+    // -- Path Display -- //
     SDL_RenderDrawRect(renderer, &(data->Path_container));
     SDL_SetRenderDrawColor(renderer, 0xd9, 0xdb, 0xb9, 0xFF);
     SDL_RenderFillRect(renderer, &(data->Path_container));
+    SDL_QueryTexture(data->Path, NULL, NULL, &(data->Path_rect.w), &(data->Path_rect.h));
     SDL_RenderCopy(renderer, data->Path, NULL, &(data->Path_rect));
-    //SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
 
+    // -- Render Scroll Bar -- //
     renderScrollbar(renderer, data);
 
     // show rendered frame
@@ -523,23 +543,70 @@ void setPath(AppData *data, std::string path){
     data->PathText = path;
 }
 
+/** Sets the path text for the current file directory path
+ * @param data App Data used in rendering main-stage content
+ * @param newFiles Files to change the current Files into
+ */
+void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles){
+    data->files.clear();
+    data->files = newFiles;
+    data->Text.clear();
+    data->Size.clear();
+    data->Permissions.clear();
+
+    int j;
+    for(j = 0; j < data->files.size(); j++){
+
+        // -- File Name -- //
+        SDL_Color color = {0, 0, 0};
+        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, data->files[j]->name.c_str(), color);
+        data->Text.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
+        SDL_FreeSurface(text_surface);
+
+        // -- File Size -- //
+        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, data->files[j]->size.c_str(), color);
+        data->Size.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
+        SDL_FreeSurface(text_surface2);
+
+        // -- File Permissions -- //
+        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, data->files[j]->permissions.c_str(), color);
+        data->Permissions.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
+        SDL_FreeSurface(text_surface3);
+    }
+}
+
 /** Render all files/Icons/Size/permissions within a current path directory
  * @param renderer Main-stage renderer
  * @param data App Data used in rendering main-state content
  * @param files list of files within the current path directory
  */
-void renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
+void renderFiles(SDL_Renderer *renderer, AppData *data){
 
     int i; 
-    for(i = 0; i < files.size(); i++){
+    for(i = 0; i < data->files.size(); i++){
 
         // ----Render Icon---- //
 
-        if(files[i]->is_dir == true){
-            SDL_RenderCopy(renderer, data->Directory, NULL, &(data->Icon_rect));
-        }
-        else{
-            SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+        switch(data->files[i]->type)
+        {
+            case Type::DIRECTORY:
+                SDL_RenderCopy(renderer, data->Directory, NULL, &(data->Icon_rect));
+                break;
+            case Type::EXECUTABLE:
+                SDL_RenderCopy(renderer, data->Executable, NULL, &(data->Icon_rect));
+                break;
+            case Type::IMAGE:
+                SDL_RenderCopy(renderer, data->Image, NULL, &(data->Icon_rect));
+                break;
+            case Type::VIDEO:
+                SDL_RenderCopy(renderer, data->Video, NULL, &(data->Icon_rect));
+                break;
+            case Type::CODE:
+                SDL_RenderCopy(renderer, data->Code, NULL, &(data->Icon_rect));
+                break;
+            case Type::OTHER:
+                SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+                break;
         }
         
         // ----Render Text---- //
@@ -664,10 +731,50 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data, std::
         // HANDLE FILE CLICKS
         int y_normalized = click_y - FILES_TOP_MARGIN + data->scroll_offset;
         int file_index = y_normalized / FILE_HEIGHT;
-        if(file_index < files.size())
+        if(file_index < data->files.size())
         {
             // CLICKED FILE
-            printf("Clicked %s\n", files.at(file_index)->name.c_str());
+            printf("Clicked %s\n", data->files.at(file_index)->name.c_str());
+
+            // Directory Change
+            std::string fullPath;
+            if(data->files.at(file_index)->is_dir == true){
+                if(data->files.at(file_index)->name == ".."){
+                    std::size_t target = data->PathText.find_last_of("/");
+                    fullPath = data->PathText.substr(0, target);
+                    setPath(data, fullPath);
+                    std::vector<File*> newFiles = getItemsInDirectory(fullPath);
+                    setFiles(renderer, data, newFiles);
+                    SDL_Color color = {0, 0, 0};
+                    SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
+                    data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
+                    SDL_FreeSurface(path_surface);
+                    std::cout << "New Path: " << data->PathText << std::endl;
+                }
+                else{
+                    fullPath = data->PathText + "/" + data->files.at(file_index)->name;
+                    setPath(data, fullPath);
+                    std::vector<File*> newFiles = getItemsInDirectory(fullPath);
+                    setFiles(renderer, data, newFiles);
+                    SDL_Color color = {0, 0, 0};
+                    SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
+                    data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
+                    SDL_FreeSurface(path_surface);
+                    std::cout << "New Path: " << data->PathText << std::endl;
+                }             
+            }
+
+            // Execute Program
+            else{
+                int pid = fork();
+                if(pid == 0){
+                    fullPath = data->PathText + "/" + data->files.at(file_index)->name;
+                    char *pathArray = &fullPath[0];
+                    char openCommand[] = "xdg-open";
+                    char *const executionArguments[3] = {openCommand, pathArray, NULL};
+                    execv("/usr/bin/xdg-open", executionArguments);
+                }
+            }
         }
         
     }
