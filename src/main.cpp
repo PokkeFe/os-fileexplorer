@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <errno.h>
 
 #define WIDTH 800
 #define HEIGHT 600
@@ -210,7 +211,6 @@ int main(int argc, char **argv)
             if(data.scrollbar_enabled && event.wheel.y <= 5 && event.wheel.y >= -5) {
                 data.scroll_offset -= event.wheel.y << 4;
                 // Don't allow to scroll above files (offset inverted)
-                printf("Mouse wheel event %d - %d - %d\n", event.wheel.x, event.wheel.y, event.wheel.which);
                 if(data.scroll_offset < 0) data.scroll_offset = 0;
                 if(data.scroll_offset > (data.files_height - data.page_height)) data.scroll_offset = (data.files_height - data.page_height);
             }
@@ -352,6 +352,7 @@ void render(SDL_Renderer *renderer, AppData *data){
  */
 std::vector<File*> getItemsInDirectory(std::string dirpath)
 {
+    if(dirpath == "") dirpath = "/";
     std::vector<File*> file_vector;
     struct stat dir_info;
     int err = stat(dirpath.c_str(), &dir_info);
@@ -363,11 +364,15 @@ std::vector<File*> getItemsInDirectory(std::string dirpath)
         std::string full_path;
 
         int dot_pos;
+
+        int first_file = 0;
+        int search_index, search_end;
         
         while((entry = readdir(dir)) != NULL)
         {
             File* file_entry = new File();
             file_entry->name = entry->d_name;
+            if(file_entry->name == ".") continue;
             file_entry->is_dir = (entry->d_type == DT_DIR);
             // get file stat
             full_path = dirpath + "/" + file_entry->name;
@@ -391,9 +396,35 @@ std::vector<File*> getItemsInDirectory(std::string dirpath)
             // extract type
             file_entry->type = parseType(file_entry);
 
-            printf("%-40s - %s\n", file_entry->name.c_str(), typeToString(file_entry->type).c_str());
-            file_vector.push_back(file_entry);
+            //printf("%-40s - %s\n", file_entry->name.c_str(), typeToString(file_entry->type).c_str());
+
+            // smarter adding
+            if(file_entry->is_dir)
+            {
+                search_index = 0;
+                search_end = first_file;
+            }
+            else
+            {
+                search_index = first_file;
+                search_end = file_vector.size();
+            }
+
+            while(search_index < search_end)
+            {
+                // compare the name strings. if new < index, break
+                if(file_entry->name < file_vector.at(search_index)->name) break;
+                search_index++;
+            }
+            
+            auto it = file_vector.begin() + search_index;
+            file_vector.insert(it, file_entry);
+            if(file_entry->is_dir) first_file++;
         }
+    }
+    else
+    {
+        printf("Error: %s\n", strerror(errno));
     }
     return file_vector;
 }
@@ -666,7 +697,6 @@ void updateScrollbarRatio(AppData* data)
  */
 void updateScrollbarPosition(AppData* data, int mouse_y)
 {
-    printf("Update scr pos method\n");
     // get normalized y
     int y = mouse_y - data->scrollbar_click_yoff - SCROLLBAR_Y;
     if(y < 0) y = 0;
@@ -747,7 +777,7 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
         if(file_index < data->files.size())
         {
             // CLICKED FILE
-            printf("Clicked %s\n", data->files.at(file_index)->name.c_str());
+            //printf("Clicked %s\n", data->files.at(file_index)->name.c_str());
 
             // Directory Change
             std::string fullPath;
@@ -759,7 +789,6 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
                     std::vector<File*> newFiles = getItemsInDirectory(fullPath);
                     setFiles(renderer, data, newFiles);
                     updateScrollbarRatio(data);
-                    printf("click event\n");
                     data->scroll_offset = 0;
                     renderScrollbar(renderer, data);
                     SDL_Color color = {0, 0, 0};
@@ -774,7 +803,6 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
                     std::vector<File*> newFiles = getItemsInDirectory(fullPath);
                     setFiles(renderer, data, newFiles);
                     updateScrollbarRatio(data);
-                    printf("click event\n");
                     data->scroll_offset = 0;
                     renderScrollbar(renderer, data);
                     SDL_Color color = {0, 0, 0};
@@ -818,7 +846,6 @@ void motionHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
     // If scrollbar is being dragged, update scrollbar position
     if(data->scrollbar_drag)
     {
-        printf("Updating scrollbar position\n");
         updateScrollbarPosition(data, event->motion.y);
         return;
     }
