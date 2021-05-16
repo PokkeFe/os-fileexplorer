@@ -202,16 +202,18 @@ int main(int argc, char **argv)
         if(event.type == SDL_MOUSEMOTION)
         {
             motionHandler(&event, renderer, &data);
-        }
+        } else
 
         // MOUSE WHEEL HANDLING
         if (event.type == SDL_MOUSEWHEEL);
         {
-            data.scroll_offset -= event.wheel.y << 4;
-            // Don't allow to scroll above files (offset inverted)
-            printf("Mouse wheel event %d\n", data.scroll_offset);
-            if(data.scroll_offset < 0) data.scroll_offset = 0;
-            if(data.scroll_offset > (data.files_height - data.page_height)) data.scroll_offset = (data.files_height - data.page_height);
+            if(data.scrollbar_enabled && event.wheel.y <= 5 && event.wheel.y >= -5) {
+                data.scroll_offset -= event.wheel.y << 4;
+                // Don't allow to scroll above files (offset inverted)
+                printf("Mouse wheel event %d - %d - %d\n", event.wheel.x, event.wheel.y, event.wheel.which);
+                if(data.scroll_offset < 0) data.scroll_offset = 0;
+                if(data.scroll_offset > (data.files_height - data.page_height)) data.scroll_offset = (data.files_height - data.page_height);
+            }
         }
 
         resetRenderData(&data);
