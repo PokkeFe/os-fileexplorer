@@ -656,8 +656,10 @@ void renderFiles(SDL_Renderer *renderer, AppData *data){
 
         data->Size_rect.x = data->Text_rect.x + 300;
         data->Size_rect.y = data->Icon_rect.y + 9;
-        SDL_QueryTexture(data->Size[i], NULL, NULL, &(data->Size_rect.w), &(data->Size_rect.h));
-        SDL_RenderCopy(renderer, data->Size[i], NULL, &(data->Size_rect));
+        if(!data->files[i]->is_dir) {
+            SDL_QueryTexture(data->Size[i], NULL, NULL, &(data->Size_rect.w), &(data->Size_rect.h));
+            SDL_RenderCopy(renderer, data->Size[i], NULL, &(data->Size_rect));
+        }
 
         // ----Render Permissions---- //
 
