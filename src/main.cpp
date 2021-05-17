@@ -17,8 +17,12 @@
 #define HEIGHT 600
 
 #define FILES_TOP_MARGIN 60
-#define FILES_LEFT_MARGIN 20
+#define FILES_LEFT_MARGIN 40
 #define FILE_HEIGHT 30
+#define FILE_DEPTH_INDENT 10
+
+#define FILE_PERMISSIONS_X (WIDTH - 100)
+#define FILE_SIZE_X (FILE_PERMISSIONS_X - 100)
 
 #define SCROLLBAR_X WIDTH - 15
 #define SCROLLBAR_Y (FILES_TOP_MARGIN + 5)
@@ -70,6 +74,11 @@ class File {
         std::string permissions;
         std::string size;
         Type type;
+        bool is_expanded;
+        std::vector<File*> sub_files;
+        int depth;
+        std::string path;
+        std::vector<SDL_Texture*> textures;
 };
 
 typedef struct AppData {
@@ -85,10 +94,8 @@ typedef struct AppData {
     SDL_Texture *Code;
     SDL_Texture *Other;
     SDL_Texture *Path;
-
-    std::vector<SDL_Texture*> Text;
-    std::vector<SDL_Texture*> Size;
-    std::vector<SDL_Texture*> Permissions; 
+    SDL_Texture *Plus;
+    SDL_Texture *Minus;
 
     std::string PathText;
 
@@ -100,8 +107,10 @@ typedef struct AppData {
     SDL_Rect Text_rect;
     SDL_Rect Size_rect;
     SDL_Rect Perm_rect;
+    SDL_Rect Expand_rect;
 
     // Render Values -
+    int num_files;
     int page_height;
     int files_height;
 
@@ -119,19 +128,21 @@ typedef struct AppData {
 
 void initialize(SDL_Renderer *renderer, AppData *data);
 void render(SDL_Renderer *renderer, AppData *data);
+void generateTextTextures(SDL_Renderer* renderer, AppData* data, std::vector<File*> files);
 
 void resetRenderData(AppData *data);
 
-std::vector<File*> getItemsInDirectory(std::string dirpath);
+std::vector<File*> getItemsInDirectory(std::string dirpath, int depth);
 void freeItemVector(std::vector<File*> *vector_ptr);
 std::string parsePermission(mode_t permission_mode);
 std::string parseSize(size_t byte_size);
 Type parseType(File* file);
 bool doesContain(std::string str, std::vector<std::string> vec);
+void collapseFiles(AppData* data, File* file, std::vector<File*> sub_files, int start_index);
 
 void setPath(AppData *data, std::string path);
 void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles);
-void renderFiles(SDL_Renderer *renderer, AppData *data);
+int renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files);
 
 void updateScrollbarRatio(AppData* data);
 void updateScrollbarPosition(AppData* data, int mouse_y);
@@ -166,7 +177,7 @@ int main(int argc, char **argv)
     // Initializing AppData----------------------------------------------
     AppData data;
     setPath(&data, std::string(home));
-    std::vector<File*> files = getItemsInDirectory(home);
+    std::vector<File*> files = getItemsInDirectory(home, 0);
     
     /*
     std::cout << "Hello!" << std::endl;
@@ -271,6 +282,14 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     SDL_Surface *img6_surf = IMG_Load("resrc/File Icons/OtherIcon.png");
     data->Other = SDL_CreateTextureFromSurface(renderer, img6_surf);
     SDL_FreeSurface(img6_surf);
+
+    SDL_Surface *plus_surf = IMG_Load("resrc/plus.png");
+    data->Plus = SDL_CreateTextureFromSurface(renderer, plus_surf);
+    SDL_FreeSurface(plus_surf);
+    
+    SDL_Surface *minus_surf = IMG_Load("resrc/minus.png");
+    data->Minus = SDL_CreateTextureFromSurface(renderer, minus_surf);
+    SDL_FreeSurface(minus_surf);
     
     /*-----------------------Initializing Text Textures------------------------*/
     data->font = TTF_OpenFont("resrc/OpenSans-Regular.ttf", 12);
@@ -279,25 +298,8 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
     SDL_FreeSurface(path_surface);
 
-    int j;
-    for(j = 0; j < data->files.size(); j++){
+    generateTextTextures(renderer, data, data->files);
 
-        // -- File Name -- //
-        SDL_Color color = {0, 0, 0};
-        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, data->files[j]->name.c_str(), color);
-        data->Text.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
-        SDL_FreeSurface(text_surface);
-
-        // -- File Size -- //
-        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, data->files[j]->size.c_str(), color);
-        data->Size.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
-        SDL_FreeSurface(text_surface2);
-
-        // -- File Permissions -- //
-        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, data->files[j]->permissions.c_str(), color);
-        data->Permissions.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
-        SDL_FreeSurface(text_surface3);
-    }
 
     /*-----------------------Initializing Rectangles----------------------*/
     // My_rect = {x, y, width, height}
@@ -311,6 +313,58 @@ void initialize(SDL_Renderer *renderer, AppData *data)
     data->Icon_rect = {20, 60, 30, 30};  
 
     data->scrollbar_guide_rect = {SCROLLBAR_X, SCROLLBAR_Y, 1, SCROLLBAR_HEIGHT};
+
+    data->Expand_rect = {0, 0, 20, 20};
+}
+
+void generateTextTextures(SDL_Renderer* renderer, AppData* data, std::vector<File*> files)
+{
+    // printf("Generating Text Textures for %ld files.\n", files.size());
+    int j;
+    for(j = 0; j < files.size(); j++){
+
+        // -- File Name -- //
+        SDL_Color color = {0, 0, 0, 255};
+        SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, files[j]->name.c_str(), color);
+        if(text_surface != NULL)
+        {
+            files[j]->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
+            SDL_FreeSurface(text_surface);
+        }
+        else
+        {
+            printf("FAILED TO GENERATE FILE NAME TEXT\n");
+        }
+
+        // -- File Size -- //
+        SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, files[j]->size.c_str(), color);
+        if(text_surface2 != NULL)
+        {
+            files[j]->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
+            SDL_FreeSurface(text_surface2);
+        }
+        else
+        {
+            printf("FAILED TO GENERATE FILE SIZE TEXT\n");
+        }
+        
+
+
+        // -- File Permissions -- //
+        SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, files[j]->permissions.c_str(), color);
+        if(text_surface3 != NULL)
+        {
+            files[j]->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
+            SDL_FreeSurface(text_surface3);
+        }
+        else
+        {
+            printf("FAILED TO GENERATE FILE PERM TEXT\n");
+        }
+        
+        
+        
+    }
 }
 
 void render(SDL_Renderer *renderer, AppData *data){
@@ -321,7 +375,7 @@ void render(SDL_Renderer *renderer, AppData *data){
     // TODO: draw!
 
     // -- Render Files -- //
-    renderFiles(renderer, data);
+    renderFiles(renderer, data, data->files);
 
     // -- Display Buffer -- //
     SDL_RenderDrawRect(renderer, &(data->Display_buffer));
@@ -350,7 +404,7 @@ void render(SDL_Renderer *renderer, AppData *data){
  * @param dirpath Path of the directory to get the contents of.
  * @return A vector of files and folders inside the directory.
  */
-std::vector<File*> getItemsInDirectory(std::string dirpath)
+std::vector<File*> getItemsInDirectory(std::string dirpath, int depth)
 {
     if(dirpath == "") dirpath = "/";
     std::vector<File*> file_vector;
@@ -372,8 +426,11 @@ std::vector<File*> getItemsInDirectory(std::string dirpath)
         {
             File* file_entry = new File();
             file_entry->name = entry->d_name;
+            file_entry->path = dirpath + "/" + file_entry->name;
+            file_entry->depth = depth;
             if(file_entry->name == ".") continue;
             file_entry->is_dir = (entry->d_type == DT_DIR);
+            file_entry->is_expanded = false;
             // get file stat
             full_path = dirpath + "/" + file_entry->name;
             stat(full_path.c_str(), &entry_info);
@@ -586,27 +643,27 @@ void setPath(AppData *data, std::string path){
 void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles){
     data->files.clear();
     data->files = newFiles;
-    data->Text.clear();
-    data->Size.clear();
-    data->Permissions.clear();
+    data->num_files = data->files.size();
 
     int j;
+    File* file;
     for(j = 0; j < data->files.size(); j++){
-
+        file = data->files[j];
+        file->textures.clear();
         // -- File Name -- //
         SDL_Color color = {0, 0, 0};
         SDL_Surface *text_surface = TTF_RenderText_Solid(data->font, data->files[j]->name.c_str(), color);
-        data->Text.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
+        file->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface));
         SDL_FreeSurface(text_surface);
 
         // -- File Size -- //
         SDL_Surface *text_surface2 = TTF_RenderText_Solid(data->font, data->files[j]->size.c_str(), color);
-        data->Size.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
+        file->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface2));
         SDL_FreeSurface(text_surface2);
 
         // -- File Permissions -- //
         SDL_Surface *text_surface3 = TTF_RenderText_Solid(data->font, data->files[j]->permissions.c_str(), color);
-        data->Permissions.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
+        file->textures.push_back(SDL_CreateTextureFromSurface(renderer, text_surface3));
         SDL_FreeSurface(text_surface3);
     }
 }
@@ -616,62 +673,76 @@ void setFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> newFiles
  * @param data App Data used in rendering main-state content
  * @param files list of files within the current path directory
  */
-void renderFiles(SDL_Renderer *renderer, AppData *data){
-
+int renderFiles(SDL_Renderer *renderer, AppData *data, std::vector<File*> files){
     int i; 
-    for(i = 0; i < data->files.size(); i++){
-
+    File* file;
+    for(i = 0; i < files.size(); i++){
+        file = files[i];
         // ----Render Icon---- //
 
-        switch(data->files[i]->type)
+        auto local_Icon_rect = data->Icon_rect;
+        local_Icon_rect.x += (FILE_DEPTH_INDENT * file->depth);
+
+        switch(file->type)
         {
             case Type::DIRECTORY:
-                SDL_RenderCopy(renderer, data->Directory, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Directory, NULL, &(local_Icon_rect));
                 break;
             case Type::EXECUTABLE:
-                SDL_RenderCopy(renderer, data->Executable, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Executable, NULL, &(local_Icon_rect));
                 break;
             case Type::IMAGE:
-                SDL_RenderCopy(renderer, data->Image, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Image, NULL, &(local_Icon_rect));
                 break;
             case Type::VIDEO:
-                SDL_RenderCopy(renderer, data->Video, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Video, NULL, &(local_Icon_rect));
                 break;
             case Type::CODE:
-                SDL_RenderCopy(renderer, data->Code, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Code, NULL, &(local_Icon_rect));
                 break;
             case Type::OTHER:
-                SDL_RenderCopy(renderer, data->Other, NULL, &(data->Icon_rect));
+                SDL_RenderCopy(renderer, data->Other, NULL, &(local_Icon_rect));
                 break;
         }
-        
+
+        // ----Render Expand---- //
+        if(file->is_dir && file->name != ".."){
+            data->Expand_rect.x = local_Icon_rect.x - 30;
+            data->Expand_rect.y = data->Icon_rect.y + 5;
+            SDL_Texture* texture = (file->is_expanded) ? (data->Minus) : (data->Plus);
+            SDL_RenderCopy(renderer, texture, NULL, &(data->Expand_rect));
+        }
+    
         // ----Render Text---- //
         
-        data->Text_rect.x = data->Icon_rect.x + 40;
-        data->Text_rect.y = data->Icon_rect.y + 9;
-        SDL_QueryTexture(data->Text[i], NULL, NULL, &(data->Text_rect.w), &(data->Text_rect.h));
-        SDL_RenderCopy(renderer, data->Text[i], NULL, &(data->Text_rect));
+        data->Text_rect.x = local_Icon_rect.x + 40;
+        data->Text_rect.y = local_Icon_rect.y + 9;
+        SDL_QueryTexture(file->textures[0], NULL, NULL, &(data->Text_rect.w), &(data->Text_rect.h));
+        SDL_RenderCopy(renderer, file->textures[0], NULL, &(data->Text_rect));
 
         // ----Render Size---- //
 
-        data->Size_rect.x = data->Text_rect.x + 300;
+        data->Size_rect.x = FILE_SIZE_X;
         data->Size_rect.y = data->Icon_rect.y + 9;
-        if(!data->files[i]->is_dir) {
-            SDL_QueryTexture(data->Size[i], NULL, NULL, &(data->Size_rect.w), &(data->Size_rect.h));
-            SDL_RenderCopy(renderer, data->Size[i], NULL, &(data->Size_rect));
+        if(!file->is_dir) {
+            SDL_QueryTexture(file->textures[1], NULL, NULL, &(data->Size_rect.w), &(data->Size_rect.h));
+            SDL_RenderCopy(renderer, file->textures[1], NULL, &(data->Size_rect));
         }
 
         // ----Render Permissions---- //
 
-        data->Perm_rect.x = data->Text_rect.x + 400;
+        data->Perm_rect.x = FILE_PERMISSIONS_X;
         data->Perm_rect.y = data->Icon_rect.y + 9;
-        SDL_QueryTexture(data->Permissions[i], NULL, NULL, &(data->Perm_rect.w), &(data->Perm_rect.h));
-        SDL_RenderCopy(renderer, data->Permissions[i], NULL, &(data->Perm_rect));
+        SDL_QueryTexture(file->textures[2], NULL, NULL, &(data->Perm_rect.w), &(data->Perm_rect.h));
+        SDL_RenderCopy(renderer, file->textures[2], NULL, &(data->Perm_rect));
+        
 
         // ----Increment Height---- //
 
         data->Icon_rect.y += 30;
+
     }
+    return 0;
 }
 
 
@@ -684,8 +755,7 @@ void renderFiles(SDL_Renderer *renderer, AppData *data){
  */
 void updateScrollbarRatio(AppData* data)
 {
-    int num_files = data->files.size();
-    data->files_height = num_files * FILE_HEIGHT;
+    data->files_height = data->num_files * FILE_HEIGHT;
     data->scrollbar_ratio = (float) data->page_height / (float) data->files_height;
     if(data->scrollbar_ratio >= 1.0f)
     {
@@ -776,59 +846,108 @@ void clickHandler(SDL_Event* event, SDL_Renderer* renderer, AppData* data)
         // HANDLE FILE CLICKS
         int y_normalized = click_y - FILES_TOP_MARGIN + data->scroll_offset;
         int file_index = y_normalized / FILE_HEIGHT;
-        if(file_index < data->files.size())
+        File* clicked_file;
+        if(file_index < data->num_files)
         {
-            // CLICKED FILE
-            //printf("Clicked %s\n", data->files.at(file_index)->name.c_str());
-
-            // Directory Change
-            std::string fullPath;
-            if(data->files.at(file_index)->is_dir == true){
-                if(data->files.at(file_index)->name == ".."){
-                    std::size_t target = data->PathText.find_last_of("/");
-                    fullPath = data->PathText.substr(0, target);
+            clicked_file = data->files[file_index];
+            if(click_x >= (clicked_file->depth * FILE_DEPTH_INDENT) + FILES_LEFT_MARGIN)
+                {
+                // Directory Change
+                std::string fullPath;
+                if(data->files.at(file_index)->is_dir == true){
+                    if(data->files.at(file_index)->name == ".."){
+                        std::size_t target = data->PathText.find_last_of("/");
+                        fullPath = data->PathText.substr(0, target);
+                    }
+                    else{
+                        // printf("clicked file path: %s\n", clicked_file->path.c_str());
+                        fullPath = clicked_file->path;
+                    }
+                    
                     setPath(data, fullPath);
-                    std::vector<File*> newFiles = getItemsInDirectory(fullPath);
+                    std::vector<File*> newFiles = getItemsInDirectory(fullPath, 0);
                     setFiles(renderer, data, newFiles);
-                    updateScrollbarRatio(data);
-                    data->scroll_offset = 0;
-                    renderScrollbar(renderer, data);
+
                     SDL_Color color = {0, 0, 0};
                     SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
                     data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
-                    SDL_FreeSurface(path_surface);
+                    SDL_FreeSurface(path_surface);      
+                    
+                    data->num_files = data->files.size();
+
+                    updateScrollbarRatio(data);
+                    data->scroll_offset = 0;
+                    renderScrollbar(renderer, data);
+                    
                     std::cout << "New Path: " << data->PathText << std::endl;
                 }
-                else{
-                    fullPath = data->PathText + "/" + data->files.at(file_index)->name;
-                    setPath(data, fullPath);
-                    std::vector<File*> newFiles = getItemsInDirectory(fullPath);
-                    setFiles(renderer, data, newFiles);
-                    updateScrollbarRatio(data);
-                    data->scroll_offset = 0;
-                    renderScrollbar(renderer, data);
-                    SDL_Color color = {0, 0, 0};
-                    SDL_Surface *path_surface = TTF_RenderText_Solid(data->font, data->PathText.c_str(), color);
-                    data->Path = SDL_CreateTextureFromSurface(renderer, path_surface);
-                    SDL_FreeSurface(path_surface);
-                    std::cout << "New Path: " << data->PathText << std::endl;
-                }             
-            }
 
-            // Execute Program
-            else{
-                int pid = fork();
-                if(pid == 0){
-                    fullPath = data->PathText + "/" + data->files.at(file_index)->name;
-                    char *pathArray = &fullPath[0];
-                    char openCommand[] = "xdg-open";
-                    char *const executionArguments[3] = {openCommand, pathArray, NULL};
-                    execv("/usr/bin/xdg-open", executionArguments);
+                // Execute Program
+                else{
+                    int pid = fork();
+                    if(pid == 0){
+                        fullPath = clicked_file->path;
+                        char *pathArray = &fullPath[0];
+                        char openCommand[] = "xdg-open";
+                        char *const executionArguments[3] = {openCommand, pathArray, NULL};
+                        execv("/usr/bin/xdg-open", executionArguments);
+                    }
+                }
+            }
+            else
+            {
+                // Expand area clicked
+                if(data->files[file_index]->is_dir && data->files[file_index]->name != "..")
+                {
+                    auto file = data->files[file_index];
+                    if(!file->is_expanded)
+                    {
+                        // printf("Expanding files\n");
+                        file->is_expanded = true;
+                        // printf("File path %s\n", file->path.c_str());
+                        file->sub_files = getItemsInDirectory(file->path, file->depth + 1);
+                        delete file->sub_files[0];
+                        file->sub_files.erase(file->sub_files.begin());
+                        data->num_files += file->sub_files.size();
+                        generateTextTextures(renderer, data, file->sub_files);
+                        // printf("Adding %ld files from %s\n", file->sub_files.size(), file->path.c_str());
+                        for(int i = 0; i < file->sub_files.size(); i++)
+                        {
+                            data->files.insert(data->files.begin() + file_index + i + 1, file->sub_files[i]);
+                        }
+                        updateScrollbarRatio(data);
+                        renderScrollbar(renderer, data);
+                    }
+                    else
+                    {
+                        collapseFiles(data, file, file->sub_files, file_index);
+                        updateScrollbarRatio(data);
+                        renderScrollbar(renderer, data);
+                    }
+
                 }
             }
         }
         
     }
+}
+
+void collapseFiles(AppData* data, File* file, std::vector<File*> sub_files, int start_index)
+{
+
+    for(int i = 0; i < sub_files.size(); i++)
+    {
+        if(sub_files[i]->is_expanded) collapseFiles(data, sub_files[i], sub_files[i]->sub_files, start_index + 1 + i);
+        for(int j = 0; j < sub_files[i]->textures.size(); j++)
+        {
+            SDL_DestroyTexture(sub_files[i]->textures[j]);
+        }
+    }
+    file->is_expanded = false;
+    data->files.erase(data->files.begin() + start_index + 1, data->files.begin() + start_index + 1 + sub_files.size());
+    data->num_files -= file->sub_files.size();
+    freeItemVector(&file->sub_files);
+    file->sub_files.empty();
 }
 
 /** Handle any logic for mouse release events
